@@ -10,6 +10,7 @@ import csv
 import codecs
 import time
 
+#@periodic_task(run_every=(crontab(hour=0, minute=57, day_of_week="*")))
 @shared_task
 def stocksfeed():
 
@@ -35,9 +36,8 @@ def stocksfeed():
 					q.save()
 
 					# Send detectAnomalies to another worker (thread)
-					detectAnomalies.delay(q.id)
-		else:
-			break
+					#detectAnomalies.delay(q.id)
+
 	#target.close()
 	sock.close()
 
@@ -97,10 +97,21 @@ def updatemarket():
 	# Get all symbols
 	symbols = Trade.objects.values('symbol').distinct()
 	for s in symbols:
-		# Arbitrarely chosen 25000 - to check (assumption last 25k trades are enough for good approximations)
-		pa = Trade.objects.filter(symbol=s['symbol']).order_by('-trade_time')[:25000].aggregate(Avg('price'))
-		ps = Trade.objects.filter(symbol=s['symbol']).order_by('-trade_time')[:25000].aggregate(StdDev('price'))
-		sa = Trade.objects.filter(symbol=s['symbol']).order_by('-trade_time')[:25000].aggregate(Avg('size'))
-		ss = Trade.objects.filter(symbol=s['symbol']).order_by('-trade_time')[:25000].aggregate(StdDev('size'))
-		q = Market(update_date=date.today(), symbol=s['symbol'], price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'])
+		# Make stats based on trades registered yesterday
+		## TO-DO ADD OR / last 25k trades (or so) / whichever is greater of the 2 values.
+		yesterday = datetime.today() - timedelta(days=1)
+		pa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('price'))
+		ps = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('price'))
+		sa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('size'))
+		ss = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('size'))
+
+		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE trade_time >= DATE_SUB(curdate(), INTERVAL 1 DAY) AND symbol=%s) AS vl) AS sl) AS vls;", [s['symbol']]);
+		for stat in stats:
+			slope = stat.slope
+			intercept = stat.intercept
+
+		q = Market(update_date=date.today(), symbol=s['symbol'], price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
 		q.save()
+
+def predictFuturePrice(date, symbol, timestamp):
+	pass

@@ -25,6 +25,8 @@ class Market(models.Model):
 	price_stddev = models.DecimalField(max_digits=7, decimal_places=2)
 	size_avg = models.IntegerField(default=0)
 	size_stddev = models.IntegerField(default=0)
+	price_slope = models.DecimalField(default=0, max_digits=10, decimal_places = 9)
+	price_intercept = models.DecimalField(default=0, max_digits=10, decimal_places = 2)
 
 	def __str__(self):
 		return "id: %d, d: %s, s: %s, pa: %f, ps: %f, sa: %d, ss: %d" % (self.id, self.update_date, self.symbol, self.price_avg, self.price_stddev, self.size_avg, self.size_stddev)

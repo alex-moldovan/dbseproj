@@ -6,5 +6,5 @@ class StocksConfig(AppConfig):
 	verbose_name = "Stock Trades"
 	def ready(self):
 		from stocks.tasks import updatemarket, stocksfeed
-		stocksfeed.delay()
-		updatemarket.delay()
+		#stocksfeed.delay()
+		#updatemarket.delay()

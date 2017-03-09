@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.db import connection
 from django.conf import settings
-from stocks.models import Trade, Alert, Market
+from stocks.models import Trade, Alert, Market, Company
 from stocks.charts import simple, candle
 from stocks.tasks import importCSV
 from django.http import HttpResponse
@@ -45,7 +45,7 @@ def predict_future(request):
 		if 'hist' in request.POST:
 			hist = datetime.strptime(request.POST['hist'], "%m/%d/%y")
 		else:
-			hist = datetime.date.today()
+			hist = datetime.date.today() + datetime.timedelta(days=1)
 			# datetime.strptime(request.POST['hist'], "%m/%d/%y")
 
 	market = Market.get_closest_to(hist, symbol);
@@ -60,7 +60,7 @@ def index(request):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
-		latest_stock_list = Trade.objects.values_list('sector', flat=True).distinct()
+		latest_stock_list = Company.objects.values_list('sector', flat=True).distinct()
 
 	context = {
 		'latest_stock_list': latest_stock_list,
@@ -72,12 +72,14 @@ def stock(request, sectorName, symbolName):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
-		latest_stock_list = Trade.objects.filter(symbol=symbolName).order_by('-trade_time')[:10000]
+		latest_stock_list = Trade.objects.filter(symbol=symbolName).order_by('-trade_time')[:100000]
 		#latest_stock_list = latest_stock_list.filter(symbol=symbolName)
 		#latest_stock_list = latest_stock_list.order_by('-trade_time')[:10000]
 
 		#chart = simple(request, latest_stock_list)
 		chart = candle(request, latest_stock_list)
+
+		latest_stock_list = Trade.objects.filter(symbol=symbolName).order_by('-trade_time')[:1000]
 
 		context = {
 			'stockName' : symbolName,
@@ -92,12 +94,28 @@ def sector(request, sectorName):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
-		latest_stock_list = Trade.objects.filter(sector=sectorName).order_by().values_list('symbol', flat=True).distinct()
+		latest_stock_list = Company.objects.filter(sector=sectorName).order_by().values_list('symbol', flat=True).distinct()
 		#latest_stock_list = latest_stock_list.values_list('symbol', flat=True).distinct()
 
 	context = {
 		'stockName' : sectorName,
 		'latest_stock_list': latest_stock_list,
+	}
+
+	return render(request, 'stocks/index.html', context)
+
+def alerts(request):
+	if request.POST and request.FILES:
+		return read_file(request)
+	else:
+		alerts_list = Alert.objects.filter(resolved=False)
+		prev_false = Alert.objects.filter(resolved=True, false_alarm=True)
+		prev_serious = Alert.objects.filter(resolved=True, false_alarm=False)
+
+	context = {
+		'alertsList' : alerts_list,
+		'prevFalse' : prev_false,
+		'prevSerious' : prev_serious,
 	}
 
 	return render(request, 'stocks/index.html', context)

@@ -1,7 +1,7 @@
 # Create your tasks here
 from __future__ import absolute_import, unicode_literals
 from celery import shared_task
-from stocks.models import Trade, Market, Alert
+from stocks.models import Trade, Market, Alert, Company
 from django.db.models import Avg, StdDev, Count, Min, Max
 from datetime import date, timedelta, datetime
 from django.db import connection
@@ -83,6 +83,17 @@ def sendAlert(tr, problem, market = None):
 	q.save()
 
 @shared_task
+def updatecompanies():
+	symbols = Trade.objects.values('symbol').distinct()
+	for s in symbols:
+		trade = Trade.objects.filter(symbol=s['symbol'])[0]
+		company = Company(symbol=trade.symbol, sector=trade.sector)
+		company.save()
+	#Delete invalid objects
+	Company.objects.filter(sector="").delete()
+
+
+@shared_task
 def updatemarket():
 	# Get all symbols
 	symbols = Trade.objects.values('symbol').distinct()
@@ -101,13 +112,13 @@ def updatemarket():
 		ps = Trade.objects.filter(pk__in=qs).aggregate(StdDev('price'))
 		sa = Trade.objects.filter(pk__in=qs).aggregate(Avg('size'))
 		ss = Trade.objects.filter(pk__in=qs).aggregate(StdDev('size'))
-		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol='%s' ORDER BY x DESC LIMIT 50000) AS vl) AS sl) AS vls;", [s['symbol']])
+		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol='%s' ORDER BY x DESC LIMIT 100000) AS vl) AS sl) AS vls;", [s['symbol']])
 		#stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol=%s ORDER BY x DESC LIMIT 50000) AS vl) AS sl) AS vls;", [s['symbol']]);
 		for stat in stats:
 			slope = stat.slope
 			intercept = stat.intercept
 
-		q = Market(update_date=date.today(), symbol=s['symbol'], price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
+		q = Market(update_date=date.today(), symbol=s['symbol'], sector=s['sector'], price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
 		q.save()
 
 def predictFuturePrice(date, symbol, timestamp):
@@ -121,35 +132,35 @@ def detectFatFinger(tr, stats = None):
 	ask_dev = abs(tr.ask - stats.price_avg)
 
 	# Check price deviation
-	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT):
+	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT) or float(price_dev) < (stats.price_stddev / FF_PRC_DEV_FACT):
 		sendAlert(tr,"fatfinger-price-dev")
 
 	# Check price
-	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT):
+	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT) or float(tr.price) < (stats.price_avg / FF_PRC_AVG_FACT):
 		sendAlert(tr,"fatfinger-price-avg")
 
 	# Check size deviation
-	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT):
+	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT) or float(size_dev) < (stats.size_stddev / FF_SZE_DEV_FACT):
 		sendAlert(tr,"fatfinger-size-dev")
 
 	# Check size
-	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT):
+	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT) or int(tr.size) < (stats.size_avg / FF_SZE_AVG_FACT):
 		sendAlert(tr,"fatfinger-size-avg")
 
 	# Check bid deviation
-	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT):
+	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT) or float(bid_dev) < (stats.price_stddev / FF_BID_DEV_FACT):
 		sendAlert(tr,"fatfinger-bid-dev")
 
 	# Check bid
-	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT):
+	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT) or float(tr.bid) < (stats.price_avg / FF_BID_AVG_FACT):
 		sendAlert(tr,"fatfinger-bid-avg")
 
 	# Check ask deviation
-	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT):
+	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT) or float(ask_dev) < (stats.price_stddev / FF_ASK_DEV_FACT):
 		sendAlert(tr,"fatfinger-ask-dev")
 
 	# Check ask
-	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT):
+	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT) or float(tr.ask) < (stats.price_avg / FF_ASK_AVG_FACT):
 		sendAlert(tr,"fatfinger-ask-avg")
 
 
@@ -162,23 +173,49 @@ def detectFatFinger(tr, stats = None):
 	check for each symbol if the cumulative size for that day so far is
 	anomalous compared to the average daily size, e.g. it's 2x higher/lower.
 '''
+
+'''
+	! For each market entry also store the average daily size and current day's
+	  cumulative size, as volume spike analysis is done on stocks traded in a
+	  day, not in an individual trade.
+
+	This function should be called once every 4 hours or so, and it should
+	check for each symbol if the cumulative size for that day so far is
+	anomalous compared to the average daily size, e.g. it's 2x higher/lower.
+'''
 def detectVolumeSpike():
 	market = Market.objects.all()
+	sectors = Sector.objects.all()
 	today = datetime.today()
 	prev_time = today - timedelta(hours=4)
 
+	for sector in sectors:
+		new_size = Trade.objects.filter(trade_time__gte=prev_time, sector=sector['name']).aggregate(Avg('size'))
+		sector.current_day_size += new_size
+
 	for stock in market:
-		new_size = Trade.objects.filter(trade_time__gte = prev_time, symbol=stock['symbol']).aggregate(Avg('size'))
+		new_size = Trade.objects.filter(trade_time__gte=prev_time, symbol=stock['symbol']).aggregate(Avg('size'))
 		stock.current_day_size += new_size
 
 	# check for volume spikes in the updated data
 	for stock in market:
+		if stock.day_size_avg == 0:
+			continue
+
 		# volume spikes can go both ways
 		if stock.current_day_size > (stock.day_size_avg * VS_FACT) or stock.current_day_size < (stock.day_size_avg * VS_FACT):
 			# pick a random trade with the respective symbol, as this is the
 			# only relevant data for this anomaly type
 			tr = Trade.objects.filter(symbol=stock.symbol)[0]
-			sendAlert(tr,"volume-spike")
+			sendAlert(tr,"volume-spike-stock")
+
+	for sector in sectors:
+		if sector.day_size_avg == 0:
+			continue
+
+		if sector.current_day_size > (sector.day_size_avg * VS_FACT) or sector.current_day_size < (sector.day_size_avg * VS_FACT):
+			tr = Trade.objects.filter(sector=sector.name)[0]
+			sendAlert(tr, "volume-spike-sector")
 
 	# if it's midnight, update the averages and reset the daily stats
 	if today.hour > 0 and today.hour < 1:
@@ -186,6 +223,10 @@ def detectVolumeSpike():
 			stock.day_size_avg = (stock.day_size_avg * stock.days + stock.current_day_size) / float(stock.days + 1)
 			stock.days += 1
 			stock.current_day_size = 0
+		for sector in sectors:
+			sector.day_size_avg = (sector.day_size_avg * sector.days + sector.current_day_size) / float(sector.days + 1)
+			sector.days += 1
+			sector.current_day_size = 0
 
 '''
 	! For each market entry store three more values:

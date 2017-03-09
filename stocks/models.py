@@ -21,6 +21,7 @@ class Trade(models.Model):
 class Market(models.Model):
 	update_date = models.DateField(db_index=True)
 	symbol = models.CharField(db_index=True, max_length=10)
+	sector = models.CharField(max_length=10)
 	price_avg = models.DecimalField(max_digits=7, decimal_places=2)
 	price_stddev = models.DecimalField(max_digits=7, decimal_places=2)
 	size_avg = models.IntegerField(default=0)
@@ -76,4 +77,15 @@ class Alert(models.Model):
 	symbol = models.CharField(db_index=True, max_length=50, null=True)
 	sector = models.CharField(db_index=True, max_length=50, null=True)
 	anomaly = models.CharField(max_length=50)
-	resolved = models.BooleanField()
+	resolved = models.BooleanField(default=False)
+	false_alarm = models.BooleanField(default=False)
+
+class Sector(models.Model):
+	name = models.CharField(db_index=True, max_length=100)
+	day_size_avg = models.IntegerField(default=0)
+	current_day_size = models.IntegerField(default = 0)
+	days = models.IntegerField(default=0)
+
+class Company(models.Model):
+	symbol = models.CharField(max_length=10, primary_key=True)
+	sector = models.CharField(max_length=50)

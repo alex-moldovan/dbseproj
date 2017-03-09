@@ -16,6 +16,8 @@
 		<script src='https://cdn.rawgit.com/admsev/jquery-play-sound/master/jquery.playSound.js'></script>
 		<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
 		<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/2.1.6/js/jquery.fancybox.min.js"></script>
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/2.1.6/css/jquery.fancybox.min.css">
 
 	</head>
 	<body>
@@ -34,11 +36,11 @@
 				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
 						<div class="panel-body">
-							<h1>Upload a CSV file</h1>
+							<h2>Upload a CSV file</h2>
 							<form action="" method="post" enctype="multipart/form-data">
 								{% csrf_token %}
-								<input type="file" name="csv_file" /><br/>
-								<input type="submit" value="Upload" />
+								<input class="btn btn-default" type="file" name="csv_file" /><br/>
+								<input class="btn btn-default" type="submit" value="Upload" />
 							</form>
 						</div>
 					</div>
@@ -48,17 +50,24 @@
 				<div class="col-md-10 col-md-offset-1">
 					<ol class="breadcrumb">
 						{% if stockName %}
-  					<li><a href="../">Home</a></li>
+					<li><a href="../">Home</a></li>
 						{% else %}
 						<li><a href="./">Home</a></li>
 						{% endif %}
 						{% if sectorName %}
-  					<li><a href="./">{{ sectorName }}</a></li>
+					<li><a href="./">{{ sectorName }}</a></li>
 						{% endif %}
-  					<li class="active">{{ stockName }}</li>
+					<li class="active">{{ stockName }}</li>
 					</ol>
 				</div>
 			</div>
+			{% if alertsList %}
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					hi
+				</div>
+			</div>
+			{% endif %}
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
@@ -67,12 +76,21 @@
 							{% if chart %}
 							<img src="data:image/png;base64,{{chart|safe}}">
 							<hr/>
-							<h1>Predict future stock price</h1>
-							<form method="post" action="/ajax/predict">
+							<h2>Look up past data</h2>
+							<form id="past" method="post" action="/ajax/predict">
+								{% csrf_token %}
+								Select a date in the past.
+								<input type="hidden" name="symbol" value="{{ stockName }}" required/>
+								<input type="text" class="form-control" name="date" id="datepicker_past" required/><br/><input class="btn btn-primary" type="submit"/>
+							</form>
+							<hr/>
+							<h2>Predict future stock price</h2>
+							<form id="predict" method="post" action="/ajax/predict">
 								{% csrf_token %}
 								Select a date in the future to predict the price:
 								<input type="hidden" name="symbol" value="{{ stockName }}" required/>
-								<input type="text" name="date" id="datepicker" required/> <input type="submit">
+								<input type="text" class="form-control" name="date" id="datepicker" required/><br/><input class="btn btn-primary" type="submit"/>
+								<p id="predict_result"></p>
 							</form>
 							<hr/>
 							{% endif %}
@@ -80,11 +98,17 @@
 							{% else %}
 							<p>No stocks are available</p>
 							{% endif %}
-							<ul>
 							{% for row in latest_stock_list %}
 							{% if sectorName %}
+								{% if forloop.counter == 1 %}
+									<h2>Last available trades for {{ row.symbol }}</h2>
+									<ul>
+								{% endif %}
 							<li>{{ row }}</li>
 							{% else %}
+								{% if forloop.counter == 1 %}
+									<ul>
+								{% endif %}
 							<li><a href="{{ row }}">{{ row }}</a></li>
 							{% endif %}
 							{% endfor %}
@@ -98,7 +122,30 @@
 			var length;
 			$(document).ready(function() {
 
+				$("#predict").submit(function(e)
+				{
+					var postData = $(this).serializeArray();
+					var formURL = $(this).attr("action");
+					$.ajax(
+					{
+						url : formURL,
+						type: "POST",
+						data : postData,
+						success:function(data, textStatus, jqXHR) 
+						{
+							$("#predict_result").html("Predicted average price: " + data);
+						},
+						error: function(jqXHR, textStatus, errorThrown) 
+						{
+							//if fails      
+						}
+					});
+					e.preventDefault(); //STOP default action
+					e.unbind(); //unbind. to stop multiple form submit.
+				});
+
 				$( "#datepicker" ).datepicker({ minDate: "+1D", maxDate: "+1Y", dateFormat: "dd/mm/yy" });
+				$( "#datepicker_past" ).datepicker({ maxDate: "0", dateFormat: "dd/mm/yy" });
 
 				$.getJSON( "/ajax/alerts", function( data ) {
 					length = data.length;
@@ -115,7 +162,17 @@
 								length = data.length;
 								// console.log("data: " + data.length + " length: " + length);
 								$.playSound("/static/stocks/the-calling");
-
+								$("body").append("<div id='dialog' title='Warning!'><i class='fa fa-exclamation-triangle'></i> There are new alerts in the system. Click <a target='_blank' href='/alerts'>here</a> to check them.</div>");
+								$('#dialog').dialog({
+									show: {
+        								effect: "scale",
+        								duration: 300
+      								},
+								    hide: {
+								    	effect: "scale",
+										duration: 300
+								    }
+								});
 								if (data.length == 0) 
 									$("#alerts").html("<i class='fa fa-check' aria-hidden='true'></i> <a href='/alerts/'>There are no new alerts</a>");
 								else if (data.length == 1)

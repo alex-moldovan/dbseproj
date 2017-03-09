@@ -73,7 +73,7 @@ class Alert(models.Model):
 		on_delete=models.CASCADE,
 		null=True,
 	)
-	occur_date = models.DateField(db_index=True)
+	occur_date = models.DateTimeField(db_index=True)
 	symbol = models.CharField(db_index=True, max_length=50, null=True)
 	sector = models.CharField(db_index=True, max_length=50, null=True)
 	anomaly = models.CharField(max_length=50)

@@ -108,9 +108,9 @@ def alerts(request):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
-		alerts_list = Alert.objects.filter(resolved=False)
-		prev_false = Alert.objects.filter(resolved=True, false_alarm=True)
-		prev_serious = Alert.objects.filter(resolved=True, false_alarm=False)
+		alerts_list = Alert.objects.filter(resolved=False).order_by('-id')
+		prev_false = Alert.objects.filter(resolved=True, false_alarm=True).order_by('-id')
+		prev_serious = Alert.objects.filter(resolved=True, false_alarm=False).order_by('-id')
 
 	context = {
 		'alertsList' : alerts_list,

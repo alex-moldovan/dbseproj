@@ -49,7 +49,7 @@
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
 					<ol class="breadcrumb">
-						{% if stockName %}
+						{% if stockName or alertsList %}
 					<li><a href="../">Home</a></li>
 						{% else %}
 						<li><a href="./">Home</a></li>
@@ -57,66 +57,88 @@
 						{% if sectorName %}
 					<li><a href="./">{{ sectorName }}</a></li>
 						{% endif %}
-					<li class="active">{{ stockName }}</li>
+						{% if stockName %}
+							<li class="active">{{ stockName }}</li>
+						{% endif %}
+						{% if alertsList %}
+							<li class="active">Alerts</li>
+						{% endif %}
 					</ol>
 				</div>
 			</div>
 			{% if alertsList %}
-			<div class="row">
-				<div class="col-md-10 col-md-offset-1">
-					hi
-				</div>
-			</div>
-			{% endif %}
-			<div class="row">
-				<div class="col-md-10 col-md-offset-1">
-					<div class="panel panel-default">
-						<div class="panel-body">
-							<h2>{{ stockName }}</h2>
-							{% if chart %}
-							<img src="data:image/png;base64,{{chart|safe}}">
-							<hr/>
-							<h2>Look up past data</h2>
-							<form id="past" method="post" action="/ajax/predict">
-								{% csrf_token %}
-								Select a date in the past.
-								<input type="hidden" name="symbol" value="{{ stockName }}" required/>
-								<input type="text" class="form-control" name="date" id="datepicker_past" required/><br/><input class="btn btn-primary" type="submit"/>
-							</form>
-							<hr/>
-							<h2>Predict future stock price</h2>
-							<form id="predict" method="post" action="/ajax/predict">
-								{% csrf_token %}
-								Select a date in the future to predict the price:
-								<input type="hidden" name="symbol" value="{{ stockName }}" required/>
-								<input type="text" class="form-control" name="date" id="datepicker" required/><br/><input class="btn btn-primary" type="submit"/>
-								<p id="predict_result"></p>
-							</form>
-							<hr/>
-							{% endif %}
-							{% if latest_stock_list %}
-							{% else %}
-							<p>No stocks are available</p>
-							{% endif %}
-							{% for row in latest_stock_list %}
-							{% if sectorName %}
-								{% if forloop.counter == 1 %}
-									<h2>Last available trades for {{ row.symbol }}</h2>
-									<ul>
+
+				<div class="row">
+					<div class="col-md-10 col-md-offset-1">
+						<div class="panel panel-default">
+							<div class="panel-body">
+								<h2>New alerts</h2>
+								<ul>
+								{% if alertsList|length > 0 %}
+									{% for row in alertsList %}
+										<li><a href="/alert/{{ row.id }}">{{ row.anomaly }} alert #{{ row.id }} on {{ row.symbol }}, {{ row.sector }}, at {{ row.occur_date }}</a></li>
+									{% endfor %}
+								{% else %}
+									<li>No new alerts available.</li>
 								{% endif %}
-							<li>{{ row }}</li>
-							{% else %}
-								{% if forloop.counter == 1 %}
-									<ul>
-								{% endif %}
-							<li><a href="{{ row }}">{{ row }}</a></li>
-							{% endif %}
-							{% endfor %}
-						</ul>
+								</ul>
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
+
+			{% else %}
+
+				<div class="row">
+					<div class="col-md-10 col-md-offset-1">
+						<div class="panel panel-default">
+							<div class="panel-body">
+								<h2>{{ stockName }}</h2>
+								{% if chart %}
+								<img src="data:image/png;base64,{{chart|safe}}">
+								<hr/>
+								<h2>Look up past data</h2>
+								<form id="past" method="post" action="/ajax/predict">
+									{% csrf_token %}
+									Select a date in the past.
+									<input type="hidden" name="symbol" value="{{ stockName }}" required/>
+									<input type="text" class="form-control" name="date" id="datepicker_past" required/><br/><input class="btn btn-primary" type="submit"/>
+								</form>
+								<hr/>
+								<h2>Predict future stock price</h2>
+								<form id="predict" method="post" action="/ajax/predict">
+									{% csrf_token %}
+									Select a date in the future to predict the price:
+									<input type="hidden" name="symbol" value="{{ stockName }}" required/>
+									<input type="text" class="form-control" name="date" id="datepicker" required/><br/><input class="btn btn-primary" type="submit"/>
+									<p id="predict_result"></p>
+								</form>
+								<hr/>
+								{% endif %}
+								{% if latest_stock_list %}
+								{% else %}
+								<p>No stocks are available</p>
+								{% endif %}
+								{% for row in latest_stock_list %}
+								{% if sectorName %}
+									{% if forloop.counter == 1 %}
+										<h2>Last available trades for {{ row.symbol }}</h2>
+										<ul>
+									{% endif %}
+								<li>{{ row }}</li>
+								{% else %}
+									{% if forloop.counter == 1 %}
+										<ul>
+									{% endif %}
+								<li><a href="{{ row }}">{{ row }}</a></li>
+								{% endif %}
+								{% endfor %}
+							</ul>
+							</div>
+						</div>
+					</div>
+				</div>
+			{% endif %}
 		</div>
 		<script>
 			var length;

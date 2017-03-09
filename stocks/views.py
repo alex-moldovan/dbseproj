@@ -1,8 +1,11 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.utils import timezone
+from django.urls import reverse
 from django.db import connection
 from django.conf import settings
 from stocks.models import Trade
+from stocks.charts import simple, candle
+from stocks.tasks import importCSV
 import csv
 import codecs
 import time
@@ -22,39 +25,52 @@ def read_file(request):
 
 		path = settings.PROJECT_ROOT + "/files/%s" % uploaded_file.name
 
-		with connection.cursor() as cursor:
-			cursor.execute("LOAD DATA INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
-				
-	return redirect(reverse('stocks:index'))
+		importCSV.delay(path);
+
+	return redirect(reverse('index'))
 
 def index(request):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
-		latest_stock_list = Trade.objects.order_by('symbol', 'sector', '-trade_time')[:1000]
-		symbolPointer = ""
-		sectorPointer = ""
-		htmlString = ""
-		for stock in latest_stock_list:
-			if symbolPointer == stock.symbol:
-				if sectorPointer == stock.sector:
-					htmlString += "<li>" + stock.__str__() + "</li>"
-				else:
-					htmlString += "</ul></li><li>" + stock.sector + "<ul><li>" + stock.__str__() + "</li>"
-			else:
-				if symbolPointer == "":
-					htmlString += "<ul class='treeview'><li>" + stock.symbol + "<ul><li>" + stock.sector + "<ul><li>" + stock.__str__() + "</li>"
-				else:
-					htmlString += "</ul></li></ul></li><li>" + stock.symbol + "<ul><li>" + stock.sector + "<ul><li>" + stock.__str__() + "</li>"
+		latest_stock_list = Trade.objects.values_list('sector', flat=True).distinct()
 
-			symbolPointer = stock.symbol
-			sectorPointer = stock.sector
+	context = {
+		'latest_stock_list': latest_stock_list,
+	}
 
-		htmlString += "</ul></li></ul></li></ul>"
+	return render(request, 'stocks/index.html', context)
+
+def stock(request, sectorName, symbolName):
+	if request.POST and request.FILES:
+		return read_file(request)
+	else:
+		latest_stock_list = Trade.objects.filter(symbol=symbolName).order_by('-trade_time')[:10000]
+		#latest_stock_list = latest_stock_list.filter(symbol=symbolName)
+		#latest_stock_list = latest_stock_list.order_by('-trade_time')[:10000]
+
+		#chart = simple(request, latest_stock_list)
+		chart = candle(request, latest_stock_list)
 
 		context = {
+			'stockName' : symbolName,
+			'sectorName' : sectorName,
 			'latest_stock_list': latest_stock_list,
-			'htmlString': htmlString,
+			'chart': chart,
 		}
 
 		return render(request, 'stocks/index.html', context)
+
+def sector(request, sectorName):
+	if request.POST and request.FILES:
+		return read_file(request)
+	else:
+		latest_stock_list = Trade.objects.filter(sector=sectorName).order_by().values_list('symbol', flat=True).distinct()
+		#latest_stock_list = latest_stock_list.values_list('symbol', flat=True).distinct()
+
+	context = {
+		'stockName' : sectorName,
+		'latest_stock_list': latest_stock_list,
+	}
+
+	return render(request, 'stocks/index.html', context)

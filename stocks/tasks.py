@@ -1,16 +1,34 @@
 # Create your tasks here
 from __future__ import absolute_import, unicode_literals
 from celery import shared_task
-from stocks.models import Trade, Market, Sector, Alert
+from stocks.models import Trade, Market, Alert
 from django.db.models import Avg, StdDev, Count, Min, Max
 from datetime import date, timedelta, datetime
+from django.db import connection
 
 import socket
 import csv
 import codecs
 import time
 
-#@periodic_task(run_every=(crontab(hour=0, minute=57, day_of_week="*")))
+FF_PRC_AVG_FACT = 5
+FF_PRC_DEV_FACT = 2
+FF_SZE_AVG_FACT = 5
+FF_SZE_DEV_FACT = 2
+FF_BID_AVG_FACT = 5
+FF_BID_DEV_FACT = 2
+FF_ASK_AVG_FACT = 5
+FF_ASK_DEV_FACT = 2
+VS_FACT = 2
+PD_DAY_LIM = 50
+PD_FLC_UB = 1.5
+PD_FLC_LB = 0.7
+
+@shared_task
+def importCSV(path):
+	with connection.cursor() as cursor:
+		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
+
 @shared_task
 def stocksfeed():
 
@@ -52,40 +70,6 @@ def validateTime(trade_time):
 def detectAnomalies(tradeid):
 	tr = Trade.objects.get(id=tradeid)
 	detectFatFinger(tr)
-	detectPumpDump(tr)
-
-def detectFatFinger(tr):
-	stats = Market.objects.filter(symbol=tr.symbol).latest('id')
-
-	# Check price
-	if float(tr.price) > (stats.price_avg * 5):
-		sendAlert(tr,"fatfinger-price")
-
-	# Check size
-	if int(tr.size) > (stats.size_avg * 8):
-		sendAlert(tr,"fatfinger-size")
-	elif int(tr.size) > (stats.size_avg * 4):
-		# For lower differences it can mean a volume spike
-		sendAlert(tr,"volume-spike")
-
-	# Check bid
-	if float(tr.bid) > (stats.price_avg * 5):
-		sendAlert(tr,"fatfinger-bid")
-
-	# Check ask
-	if float(tr.ask) > (stats.price_avg * 5):
-		sendAlert(tr,"fatfinger-ask")
-
-def detectPumpDump(tr):
-	# Such operations can take a long time (lookup data for 100 days)
-	# Take minimum buy bid (min_b) in last n days
-	# If ask > ?1.5*min_b could be dumping.
-
-	# This needs a more complex check
-
-	min_b = Trade.objects.filter(buyer=tr.seller, symbol=tr.symbol, trade_time__gte = datetime.today() - timedelta(days=100)).earliest('bid')
-	if float(tr.ask) > 1.5 * float(min_b.bid):
-		sendAlert(tr,"pump-and-dump")
 
 def sendAlert(tr, problem):
 	q = Alert(trade=tr, anomaly=problem, resolved=0)
@@ -100,10 +84,15 @@ def updatemarket():
 		# Make stats based on trades registered yesterday
 		## TO-DO ADD OR / last 25k trades (or so) / whichever is greater of the 2 values.
 		yesterday = datetime.today() - timedelta(days=1)
-		pa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('price'))
-		ps = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('price'))
-		sa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('size'))
-		ss = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('size'))
+		# pa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('price'))
+		# ps = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('price'))
+		# sa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('size'))
+		# ss = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('size'))
+
+		pa = Trade.objects.filter(symbol=s['symbol']).aggregate(Avg('price'))[:50000]
+		ps = Trade.objects.filter(symbol=s['symbol']).aggregate(StdDev('price'))[:50000]
+		sa = Trade.objects.filter(symbol=s['symbol']).aggregate(Avg('size'))[:5000]
+		ss = Trade.objects.filter(symbol=s['symbol']).aggregate(StdDev('size'))[:5000]
 
 		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE trade_time >= DATE_SUB(curdate(), INTERVAL 1 DAY) AND symbol=%s) AS vl) AS sl) AS vls;", [s['symbol']]);
 		for stat in stats:
@@ -115,3 +104,153 @@ def updatemarket():
 
 def predictFuturePrice(date, symbol, timestamp):
 	pass
+
+def detectFatFinger(tr):
+	stats = Market.objects.filter(symbol=tr.symbol).latest('id')
+	price_dev = abs(tr.price - stats.price_avg)
+	size_dev = abs(tr.size - stats.size_avg)
+	bid_dev = abs(tr.bid - stats.price_avg)
+	ask_dev = abs(tr.ask - stats.price_avg)
+
+	# Check price deviation
+	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT):
+		sendAlert(tr,"fatfinger-price-dev")
+
+	# Check price
+	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT):
+		sendAlert(tr,"fatfinger-price-avg")
+
+	# Check size deviation
+	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT):
+		sendAlert(tr,"fatfinger-size-dev")
+
+	# Check size
+	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT):
+		sendAlert(tr,"fatfinger-size-avg")
+
+	# Check bid deviation
+	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT):
+		sendAlert(tr,"fatfinger-bid-dev")
+
+	# Check bid
+	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT):
+		sendAlert(tr,"fatfinger-bid-avg")
+
+	# Check ask deviation
+	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT):
+		sendAlert(tr,"fatfinger-ask-dev")
+
+	# Check ask
+	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT):
+		sendAlert(tr,"fatfinger-ask-avg")
+
+
+'''
+	! For each market entry also store the average daily size and current day's
+	  cumulative size, as volume spike analysis is done on stocks traded in a
+	  day, not in an individual trade.
+
+	This function should be called once every 4 hours or so, and it should
+	check for each symbol if the cumulative size for that day so far is
+	anomalous compared to the average daily size, e.g. it's 2x higher/lower.
+'''
+def detectVolumeSpike():
+	market = Market.objects.all()
+	today = datetime.today()
+	prev_time = today - timedelta(hours=4)
+
+	for stock in market:
+		new_size = Trade.objects.filter(trade_time__gte = prev_time, symbol=stock['symbol']).aggregate(Avg('size'))
+		stock.current_day_size += new_size
+
+	# check for volume spikes in the updated data
+	for stock in market:
+		# volume spikes can go both ways
+		if stock.current_day_size > (stock.day_size_avg * VS_FACT) or stock.current_day_size < (stock.day_size_avg * VS_FACT):
+			# pick a random trade with the respective symbol, as this is the
+			# only relevant data for this anomaly type
+			tr = Trade.objects.filter(symbol=stock.symbol)[0]
+			sendAlert(tr,"volume-spike")
+
+	# if it's midnight, update the averages and reset the daily stats
+	if today.hour > 0 and today.hour < 1:
+		for stock in market:
+			stock.day_size_avg = (stock.day_size_avg * stock.days + stock.current_day_size) / float(stock.days + 1)
+			stock.days += 1
+			stock.current_day_size = 0
+
+'''
+	! For each market entry store three more values:
+	  - sda_price_avg - starting day's price average
+	  - fluctuation - by what factor the average daily price has increased;
+	    if 0, the average price on that day will be taken as the starting value
+	  - anomalous_high - flag that tracks if the average daily price fluctuates
+	    past a certain amount, e.g. it grows past 1.5x; if this flag is set to
+	    True and the price goes down to 0.7x or so, then a pump and dump could
+	    have occurred.
+	  - pd_track_days - how many days the price fluctuation has been tracked
+	    for; if it exceeds a certain amount, e.g. 50, reset the fluctuation and
+		the flag, and consider that day's average as the new starting value.
+
+	This function should be called once a day, preferably when the live feed
+	goes down, so it can analyse the average prices for that day. Bids and asks
+	should revolve around the market price, so only the price is taken into
+	consideration here.
+'''
+def detectPumpDump():
+	market = Market.objects.all()
+	yesterday = datetime.today() - timedelta(days=1)
+
+	for stock in market:
+		# if needed, reset the values and restart the P & D analysis
+		if stock.fluctuation == 0 or stock.pd_track_days > PD_DAY_LIM:
+			anomalous_high = False
+			pd_track_days = 0
+		else:
+			stock.fluctuation = price_avg / sda_price_avg
+			# if the price gets too high, set the flag to True in order to
+			# signal a P & D if it drops too much later on; also refresh
+			# pd_track_days so as to not lose track of the possible dump
+			if stock.fluctuation > PD_FLC_UB:
+				anomalous_high = True
+				pd_track_days = 0
+			# if the price has dropped significantly after hitting an unusual
+			# high, it is most likely a P & D, so send an alert
+			elif stock.fluctuation < PD_FLC_LB and anomalous_high == True:
+				# pick a random trade with the respective symbol, as this is the
+				# only relevant data for this anomaly type
+				tr = Trade.objects.filter(symbol=stock.symbol)[0]
+				sendAlert(tr,"pump-and-dump")
+
+
+'''
+	Call this function with the name of a problem and -1 or 1, to adjust its
+	corresponding factor.
+	For example, if a false positive has been given for a fat finger price
+	difference from the average, call adjustFactor("fatfinger-price-avg", 1)
+	to increase the bounds, so that the system won't give as many false
+	positives later on.
+'''
+def adjustFactor(error_type, adj_type):
+	if error_type == 'fatfinger-price-avg':
+		FF_PRC_AVG_FACT += FF_PRC_AVG_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-price-dev':
+		FF_PRC_DEV_FACT += FF_PRC_DEV_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-size-avg':
+		FF_SZE_AVG_FACT += FF_SZE_AVG_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-size-dev':
+		FF_SZE_DEV_FACT += FF_SZE_DEV_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-bid-avg':
+		FF_BID_AVG_FACT += FF_BID_AVG_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-bid-dev':
+		FF_BID_DEV_FACT += FF_BID_DEV_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-ask-avg':
+		FF_ASK_AVG_FACT += FF_ASK_AVG_FACT * 0.1 * adj_type
+	elif error_type == 'fatfinger-ask-dev':
+		FF_ASK_DEV_FACT += FF_ASK_DEV_FACT * 0.1 * adj_type
+	elif error_type == 'volume-spike':
+		VS_FACT += VS_FACT * 0.1 * adj_type
+	elif error_type == 'pump-and-dump':
+		PD_FLC_LB += PD_FLC_LB * 0.1 * adj_type
+		PD_FLC_UB += PD_FLC_UB * 0.1 * adj_type
+		PD_DAY_LIM += PD_DAY_LIM * 0.1 * adj_type

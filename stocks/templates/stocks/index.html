@@ -12,6 +12,10 @@
 		<link rel="stylesheet" type="text/css" href="{% static 'stocks/style.css' %}" />
 		<link rel="stylesheet" type="text/css" href="{% static 'stocks/sticky-footer.css' %}" />
 		<script type="text/javascript" src="{% static 'stocks/boottree.js' %}"></script>
+
+		<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
+		<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+
 	</head>
 	<body>
 		{% include "stocks/header.html" %}
@@ -31,13 +35,40 @@
 			</div>
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
+					<ol class="breadcrumb">
+						{% if stockName %}
+  					<li><a href="../">Home</a></li>
+						{% else %}
+						<li><a href="./">Home</a></li>
+						{% endif %}
+						{% if sectorName %}
+  					<li><a href="./">{{ sectorName }}</a></li>
+						{% endif %}
+  					<li class="active">{{ stockName }}</li>
+					</ol>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
 						<div class="panel-body">
+							<h2>{{ stockName }}</h2>
+							{% if chart %}
+							<img src="data:image/png;base64,{{chart|safe}}">
+							{% endif %}
 							{% if latest_stock_list %}
-							{{ htmlString|safe }}
 							{% else %}
 							<p>No stocks are available</p>
 							{% endif %}
+							<ul>
+							{% for row in latest_stock_list %}
+							{% if sectorName %}
+							<li>{{ row }}</li>
+							{% else %}
+							<li><a href="{{ row }}">{{ row }}</a></li>
+							{% endif %}
+							{% endfor %}
+						</ul>
 						</div>
 					</div>
 				</div>

@@ -35,6 +35,29 @@ class Market(models.Model):
 	anomalous_high = models.BooleanField(default=False)
 	pd_track_days = models.IntegerField(default=0)
 
+	def get_closest_to(target, symbol):
+		closest_greater_qs = Market.objects.filter(symbol=symbol, update_date__gte=target).order_by('update_date')
+		closest_less_qs    = Market.objects.filter(symbol=symbol, update_date__lt=target).order_by('-update_date')
+
+		try:
+			try:
+				closest_greater = closest_greater_qs[0]
+			except IndexError:
+				return closest_less_qs[0]
+
+			try:
+				closest_less = closest_less_qs[0]
+			except IndexError:
+				return closest_greater_qs[0]
+		except IndexError:
+			raise self.model.DoesNotExist("There is no closest object"
+										  " because there are no objects.")
+
+		if closest_greater.update_date - target > target - closest_less.update_date:
+			return closest_less
+		else:
+			return closest_greater
+
 	def __str__(self):
 		return "id: %d, d: %s, s: %s, pa: %f, ps: %f, sa: %d, ss: %d" % (self.id, self.update_date, self.symbol, self.price_avg, self.price_stddev, self.size_avg, self.size_stddev)
 
@@ -44,9 +67,13 @@ class Alert(models.Model):
 		on_delete=models.CASCADE,
 		null=True,
 	)
+	market = models.ForeignKey(
+		'Market',
+		on_delete=models.CASCADE,
+		null=True,
+	)
 	occur_date = models.DateField(db_index=True)
 	symbol = models.CharField(db_index=True, max_length=50, null=True)
 	sector = models.CharField(db_index=True, max_length=50, null=True)
-	category = models.CharField(max_length=50)
 	anomaly = models.CharField(max_length=50)
 	resolved = models.BooleanField()

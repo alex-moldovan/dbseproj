@@ -12,13 +12,13 @@ import codecs
 import time
 
 FF_PRC_AVG_FACT = 5
-FF_PRC_DEV_FACT = 2
+FF_PRC_DEV_FACT = 20
 FF_SZE_AVG_FACT = 5
-FF_SZE_DEV_FACT = 2
+FF_SZE_DEV_FACT = 20
 FF_BID_AVG_FACT = 5
-FF_BID_DEV_FACT = 2
+FF_BID_DEV_FACT = 20
 FF_ASK_AVG_FACT = 5
-FF_ASK_DEV_FACT = 2
+FF_ASK_DEV_FACT = 20
 VS_FACT = 2
 PD_DAY_LIM = 50
 PD_FLC_UB = 1.5
@@ -28,6 +28,12 @@ PD_FLC_LB = 0.7
 def importCSV(path):
 	with connection.cursor() as cursor:
 		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
+
+	tr = Trade.objects.filter(checked = False)
+	for trade in tr:
+		trade.checked = True
+		detectAnomalies(trade.id)
+		trade.save()
 
 @shared_task
 def stocksfeed():
@@ -54,7 +60,7 @@ def stocksfeed():
 					q.save()
 
 					# Send detectAnomalies to another worker (thread)
-					#detectAnomalies.delay(q.id)
+					detectAnomalies.delay(q.id, None)
 
 	#target.close()
 	sock.close()
@@ -67,12 +73,12 @@ def validateTime(trade_time):
 	return True
 
 @shared_task
-def detectAnomalies(tradeid):
+def detectAnomalies(tradeid, stats = None):
 	tr = Trade.objects.get(id=tradeid)
-	detectFatFinger(tr)
+	detectFatFinger(tr, stats)
 
-def sendAlert(tr, problem):
-	q = Alert(trade=tr, anomaly=problem, resolved=0)
+def sendAlert(tr, problem, market = None):
+	q = Alert(trade=tr, market=market, occur_date=tr.trade_time, symbol=tr.symbol, sector=tr.sector, anomaly=problem, resolved=False)
 	print("new alert")
 	q.save()
 
@@ -89,12 +95,14 @@ def updatemarket():
 		# sa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('size'))
 		# ss = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('size'))
 
-		pa = Trade.objects.filter(symbol=s['symbol']).aggregate(Avg('price'))[:50000]
-		ps = Trade.objects.filter(symbol=s['symbol']).aggregate(StdDev('price'))[:50000]
-		sa = Trade.objects.filter(symbol=s['symbol']).aggregate(Avg('size'))[:5000]
-		ss = Trade.objects.filter(symbol=s['symbol']).aggregate(StdDev('size'))[:5000]
+		qs = Trade.objects.filter(symbol=s['symbol']).order_by('-id')
 
-		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE trade_time >= DATE_SUB(curdate(), INTERVAL 1 DAY) AND symbol=%s) AS vl) AS sl) AS vls;", [s['symbol']]);
+		pa = Trade.objects.filter(pk__in=qs).aggregate(Avg('price'))
+		ps = Trade.objects.filter(pk__in=qs).aggregate(StdDev('price'))
+		sa = Trade.objects.filter(pk__in=qs).aggregate(Avg('size'))
+		ss = Trade.objects.filter(pk__in=qs).aggregate(StdDev('size'))
+		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol='%s' ORDER BY x DESC LIMIT 50000) AS vl) AS sl) AS vls;", [s['symbol']])
+		#stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol=%s ORDER BY x DESC LIMIT 50000) AS vl) AS sl) AS vls;", [s['symbol']]);
 		for stat in stats:
 			slope = stat.slope
 			intercept = stat.intercept
@@ -105,7 +113,7 @@ def updatemarket():
 def predictFuturePrice(date, symbol, timestamp):
 	pass
 
-def detectFatFinger(tr):
+def detectFatFinger(tr, stats = None):
 	stats = Market.objects.filter(symbol=tr.symbol).latest('id')
 	price_dev = abs(tr.price - stats.price_avg)
 	size_dev = abs(tr.size - stats.size_avg)

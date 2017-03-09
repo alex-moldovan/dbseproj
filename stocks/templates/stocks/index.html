@@ -9,10 +9,11 @@
 		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
 		<!-- Latest compiled and minified JavaScript -->
 		<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+		<link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" integrity="sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN" crossorigin="anonymous">
 		<link rel="stylesheet" type="text/css" href="{% static 'stocks/style.css' %}" />
 		<link rel="stylesheet" type="text/css" href="{% static 'stocks/sticky-footer.css' %}" />
 		<script type="text/javascript" src="{% static 'stocks/boottree.js' %}"></script>
-
+		<script src='https://cdn.rawgit.com/admsev/jquery-play-sound/master/jquery.playSound.js'></script>
 		<link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
 		<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
 
@@ -24,9 +25,19 @@
 				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
 						<div class="panel-body">
+							<div id="alerts"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					<div class="panel panel-default">
+						<div class="panel-body">
+							<h1>Upload a CSV file</h1>
 							<form action="" method="post" enctype="multipart/form-data">
 								{% csrf_token %}
-								<input type="file" name="csv_file" />
+								<input type="file" name="csv_file" /><br/>
 								<input type="submit" value="Upload" />
 							</form>
 						</div>
@@ -55,6 +66,15 @@
 							<h2>{{ stockName }}</h2>
 							{% if chart %}
 							<img src="data:image/png;base64,{{chart|safe}}">
+							<hr/>
+							<h1>Predict future stock price</h1>
+							<form method="post" action="/ajax/predict">
+								{% csrf_token %}
+								Select a date in the future to predict the price:
+								<input type="hidden" name="symbol" value="{{ stockName }}" required/>
+								<input type="text" name="date" id="datepicker" required/> <input type="submit">
+							</form>
+							<hr/>
 							{% endif %}
 							{% if latest_stock_list %}
 							{% else %}
@@ -74,6 +94,40 @@
 				</div>
 			</div>
 		</div>
+		<script>
+			var length;
+			$(document).ready(function() {
+
+				$( "#datepicker" ).datepicker({ minDate: "+1D", maxDate: "+1Y", dateFormat: "dd/mm/yy" });
+
+				$.getJSON( "/ajax/alerts", function( data ) {
+					length = data.length;
+					if (data.length == 0) 
+						$("#alerts").html("<i class='fa fa-check' aria-hidden='true'></i> <a href='/alerts/'>There are no new alerts</a>");
+					else if (data.length == 1)
+						$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
+					else if (data.length > 1)
+						$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
+				}).done(function() {
+					setInterval(function() {
+						$.getJSON( "/ajax/alerts", function( data ) {
+							if (data.length != length) {
+								length = data.length;
+								// console.log("data: " + data.length + " length: " + length);
+								$.playSound("/static/stocks/the-calling");
+
+								if (data.length == 0) 
+									$("#alerts").html("<i class='fa fa-check' aria-hidden='true'></i> <a href='/alerts/'>There are no new alerts</a>");
+								else if (data.length == 1)
+									$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
+								else if (data.length > 1)
+									$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
+							}
+						});
+					}, 8000);
+				});
+			});
+		</script>
 		{% include "stocks/footer.html" %}
 	</body>
 </html>

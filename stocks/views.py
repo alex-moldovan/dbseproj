@@ -3,12 +3,17 @@ from django.utils import timezone
 from django.urls import reverse
 from django.db import connection
 from django.conf import settings
-from stocks.models import Trade
+from stocks.models import Trade, Alert, Market
 from stocks.charts import simple, candle
 from stocks.tasks import importCSV
+from django.http import HttpResponse
+import datetime
 import csv
 import codecs
 import time
+import decimal
+from datetime import timedelta
+from django.core import serializers
 
 # Create your views here.
 
@@ -28,6 +33,28 @@ def read_file(request):
 		importCSV.delay(path);
 
 	return redirect(reverse('index'))
+
+def read_alerts(request):
+	s = serializers.serialize("json", Alert.objects.filter(resolved=False))
+	return HttpResponse(s)
+
+def predict_future(request):
+	if request.POST:
+		symbol = request.POST['symbol']
+		future = request.POST['date']
+		if 'hist' in request.POST:
+			hist = datetime.strptime(request.POST['hist'], "%m/%d/%y")
+		else:
+			hist = datetime.date.today()
+			# datetime.strptime(request.POST['hist'], "%m/%d/%y")
+
+	market = Market.get_closest_to(hist, symbol);
+	ftpc = time.mktime(datetime.datetime.strptime(future, "%d/%m/%Y").timetuple())
+
+	y = market.price_slope * decimal.Decimal(ftpc) + market.price_intercept
+
+	# s = serializers.serialize("json")
+	return HttpResponse(y)
 
 def index(request):
 	if request.POST and request.FILES:

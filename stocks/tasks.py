@@ -29,7 +29,12 @@ def importCSV(path):
 	with connection.cursor() as cursor:
 		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
 
-	tr = Trade.objects.filter(checked = False)
+	tr = Trade.objects.filter(checked = 0)
+	time = tr[0].trade_time
+
+	if Trade.objects.filter(checked = 0).count() > 500000:
+		updatemarketimport()
+
 	for trade in tr:
 		trade.checked = True
 		detectAnomalies(trade.id)
@@ -92,34 +97,55 @@ def updatecompanies():
 	#Delete invalid objects
 	Company.objects.filter(sector="").delete()
 
+def updatemarketimport():
+	# Get all symbols
+	symbols = Trade.objects.values('symbol').distinct()
+	for s in symbols:
+		comp = Company.objects.get(symbol=s['symbol'])
+
+		tl = Trade.objects.filter(symbol=s['symbol'], checked=0).values_list('id', flat=True).order_by('-id')
+		tll = list(tl)
+
+		newtrade = Trade.objects.filter(symbol=s['symbol'], checked=0).order_by('-id')[0]
+
+		pa = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(Avg('price'))
+		ps = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(StdDev('price'))
+		sa = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(Avg('size'))
+		ss = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(StdDev('size'))
+
+		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol=%s AND checked=0 ORDER BY x DESC LIMIT 100000) AS vl) AS sl) AS vls;", [s['symbol']]);
+		for stat in stats:
+			slope = stat.slope
+			intercept = stat.intercept
+
+		q = Market(update_date=newtrade.trade_time, symbol=s['symbol'], sector=comp.sector, price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
+		q.save()
+
 
 @shared_task
 def updatemarket():
 	# Get all symbols
 	symbols = Trade.objects.values('symbol').distinct()
 	for s in symbols:
-		# Make stats based on trades registered yesterday
-		## TO-DO ADD OR / last 25k trades (or so) / whichever is greater of the 2 values.
 		yesterday = datetime.today() - timedelta(days=1)
-		# pa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('price'))
-		# ps = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('price'))
-		# sa = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(Avg('size'))
-		# ss = Trade.objects.filter(trade_time__gte = yesterday, symbol=s['symbol']).aggregate(StdDev('size'))
+		comp = Company.objects.get(symbol=s['symbol'])
 
-		qs = Trade.objects.filter(symbol=s['symbol']).order_by('-id')
+		tl = Trade.objects.filter(symbol=s['symbol']).values_list('id', flat=True).order_by('-id')[:50000]
+		tll = list(tl)
 
-		pa = Trade.objects.filter(pk__in=qs).aggregate(Avg('price'))
-		ps = Trade.objects.filter(pk__in=qs).aggregate(StdDev('price'))
-		sa = Trade.objects.filter(pk__in=qs).aggregate(Avg('size'))
-		ss = Trade.objects.filter(pk__in=qs).aggregate(StdDev('size'))
-		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol='%s' ORDER BY x DESC LIMIT 100000) AS vl) AS sl) AS vls;", [s['symbol']])
-		#stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol=%s ORDER BY x DESC LIMIT 50000) AS vl) AS sl) AS vls;", [s['symbol']]);
+		pa = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(Avg('price'))
+		ps = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(StdDev('price'))
+		sa = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(Avg('size'))
+		ss = Trade.objects.filter(pk__in = tll, symbol=s['symbol']).aggregate(StdDev('size'))
+
+		stats = Trade.objects.raw("SELECT 1 as id, slope, (vls.meanY - vls.slope*vls.meanX) as intercept FROM (SELECT ((sl.n*sl.sumXY - sl.sumX*sl.sumY) / (sl.n*sl.sumXX - sl.sumX*sl.sumX)) AS slope, sl.meanY as meanY, sl.meanX as meanX FROM (SELECT COUNT(y) as n, AVG(x) as meanX, SUM(x) as sumX, SUM(x*x) as sumXX, AVG(y) as meanY, SUM(y) as sumY, SUM(y*y) as sumYY, SUM(x*y) as sumXY FROM (SELECT UNIX_TIMESTAMP(trade_time) x, price y FROM stocks_trade WHERE symbol=%s ORDER BY x DESC LIMIT 100000) AS vl) AS sl) AS vls;", [s['symbol']]);
 		for stat in stats:
 			slope = stat.slope
 			intercept = stat.intercept
 
-		q = Market(update_date=date.today(), symbol=s['symbol'], sector=s['sector'], price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
+		q = Market(update_date=datetime.now(), symbol=s['symbol'], sector=comp.sector, price_avg=pa['price__avg'], price_stddev=ps['price__stddev'], size_avg=sa['size__avg'], size_stddev=ss['size__stddev'], price_slope=slope, price_intercept=intercept)
 		q.save()
+
 
 def predictFuturePrice(date, symbol, timestamp):
 	pass

@@ -19,6 +19,10 @@
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/2.1.6/js/jquery.fancybox.min.js"></script>
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/2.1.6/css/jquery.fancybox.min.css">
 
+		<script src="https://cdn.datatables.net/1.10.13/js/jquery.dataTables.min.js"></script>
+		<link rel="stylesheet" href="https://cdn.datatables.net/1.10.13/css/jquery.dataTables.min.css">
+
+
 	</head>
 	<body>
 		{% include "stocks/header.html" %}
@@ -32,6 +36,33 @@
 					</div>
 				</div>
 			</div>
+
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					<ol class="breadcrumb">
+						{% if alert %}
+						<a href="/">Home</a> / <a href="/alerts/">Alerts</a> / {{ alert.id }}
+						{% else %}
+						{% if stockName or alertsList %}
+						
+					<li><a href="../">Home</a></li>
+						{% else %}
+						<li><a href="./">Home</a></li>
+						{% endif %}
+						{% if sectorName %}
+					<li><a href="./">{{ sectorName }}</a></li>
+						{% endif %}
+						{% if stockName %}
+							<li class="active">{{ stockName }}</li>
+						{% endif %}
+						{% if alertsList %}
+							<li class="active">Alerts</li>
+						{% endif %}
+						{% endif %}
+					</ol>
+				</div>
+			</div>
+			{% if index %}
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
@@ -46,26 +77,8 @@
 					</div>
 				</div>
 			</div>
-			<div class="row">
-				<div class="col-md-10 col-md-offset-1">
-					<ol class="breadcrumb">
-						{% if stockName or alertsList %}
-					<li><a href="../">Home</a></li>
-						{% else %}
-						<li><a href="./">Home</a></li>
-						{% endif %}
-						{% if sectorName %}
-					<li><a href="./">{{ sectorName }}</a></li>
-						{% endif %}
-						{% if stockName %}
-							<li class="active">{{ stockName }}</li>
-						{% endif %}
-						{% if alertsList %}
-							<li class="active">Alerts</li>
-						{% endif %}
-					</ol>
-				</div>
-			</div>
+			{% endif %}
+
 			{% if alertsList %}
 
 				<div class="row">
@@ -76,10 +89,32 @@
 								<ul>
 								{% if alertsList|length > 0 %}
 									{% for row in alertsList %}
-										<li><a href="/alert/{{ row.id }}">{{ row.anomaly }} alert #{{ row.id }} on {{ row.symbol }}, {{ row.sector }}, at {{ row.occur_date }}</a></li>
+										<li><a href="/alert/{{ row.id }}/">#{{ row.id }}: {{ row.anomaly }} alert on {{ row.symbol }}{% if row.sector != "" %},{% endif %} {{ row.sector }}, at {{ row.occur_date }}</a></li>
 									{% endfor %}
 								{% else %}
 									<li>No new alerts available.</li>
+								{% endif %}
+								</ul>
+
+								<h2>Previous alerts</h2>
+								<ul>
+								{% if prevSerious|length > 0 %}
+									{% for row in prevSerious %}
+										<li><a href="/alert/{{ row.id }}/">{{ row.anomaly }} alert #{{ row.id }} on {{ row.symbol }}, {{ row.sector }}, at {{ row.occur_date }}</a></li>
+									{% endfor %}
+								{% else %}
+									<li>No alerts available.</li>
+								{% endif %}
+								</ul>
+
+								<h2>Previous false alarms</h2>
+								<ul>
+								{% if prevFalse|length > 0 %}
+									{% for row in prevFalse %}
+										<li><a href="/alert/{{ row.id }}/">{{ row.anomaly }} alert #{{ row.id }} on {{ row.symbol }}, {{ row.sector }}, at {{ row.occur_date }}</a></li>
+									{% endfor %}
+								{% else %}
+									<li>No false alarms registered.</li>
 								{% endif %}
 								</ul>
 							</div>
@@ -87,6 +122,53 @@
 					</div>
 				</div>
 
+			{% elif alert %}
+				<div class="row">
+					<div class="col-md-10 col-md-offset-1">
+						<div class="panel panel-default">
+							<div class="panel-body">
+							<h2>Alert #{{ alert.id }}</h2>
+							{% if alert.symbol %}<h4>Company: <a href="/{{ alert.sector }}/{{ alert.symbol }}/">{{ alert.symbol }}</a></h4>{% endif %}
+							{% if alert.sector %}<h4>Sector: {{ alert.sector }}</h4>{% endif %}
+							<h4>Anomaly: {{ alert.anomaly }}</h4>
+							<h4>Current status: 
+							{% if alert.resolved == False %}
+								New
+							{% elif alert.false_alarm %}
+								False alarm
+							{% else %}
+								Resolved
+							{% endif %}</h4>
+							{% if alert.trade %}
+								<hr/>
+									<h4>Trade causing the alert:</h4>
+									{{ alert.trade }}
+								<hr/>
+								{% if market.update_date %}
+								<ul>
+									<li>Expected average price: {{ market.price_avg }}</li>
+									<li>Expected price standard deviation: {{ market.price_stddev }}</li>
+									<li>Actual price: {{ alert.trade.price }}, bid: {{ alert.trade.bid }}, ask: {{ alert.trade.ask }}</li>
+									<li>Expected average volume: {{ market.size_avg }}</li>
+									<li>Expected volume standard deviation: {{ market.price_stddev }}</li>
+									<li>Actual volume: {{ alert.trade.size }}</li>
+								</ul>
+								<hr/>
+								{% endif %}
+							{% endif %}
+							<form id="mark" action="" method="post">
+								<input type="hidden" name="solution" id="solution"/>
+							{% csrf_token %}
+							{% if alert.resolved == False %}
+								<p><button id="resolve" class="btn btn-success">Mark as resolved</button> <button id="falsealarm" class="btn btn-danger">Mark as false alarm</button></p>
+							{% else %}
+								<p><button id="unresolve" class="btn btn-warning">Mark as new</button></p>
+							{% endif %}
+							</form>
+							</div>
+						</div>
+					</div>
+				</div>
 			{% else %}
 
 				<div class="row">
@@ -95,24 +177,43 @@
 							<div class="panel-body">
 								<h2>{{ stockName }}</h2>
 								{% if chart %}
-								<img src="data:image/png;base64,{{chart|safe}}">
+								<h3>{{ sectorName }}</h3>
+								<ul>
+									<li>Data below is based on statistics gathered before {{ hist }}</li>
+									<li>Total trades registered: {{ count }}</li>
+									<li>Last recorded average price: {{ price }}</li>
+									<li>Last recorded average volume: {{ volume }}</li>
+								</ul>
 								<hr/>
-								<h2>Look up past data</h2>
-								<form id="past" method="post" action="/ajax/predict">
+								<form id="past" method="post" action="">
 									{% csrf_token %}
-									Select a date in the past.
+									Select a date to show details about {{ stockName }} based on older statistics:
 									<input type="hidden" name="symbol" value="{{ stockName }}" required/>
-									<input type="text" class="form-control" name="date" id="datepicker_past" required/><br/><input class="btn btn-primary" type="submit"/>
+									<input type="text" class="form-control" name="hist" id="datepicker_past" required/><br/><input class="btn btn-primary" type="submit"/>
 								</form>
+								<hr/>
+								<img src="data:image/png;base64,{{chart|safe}}">
 								<hr/>
 								<h2>Predict future stock price</h2>
 								<form id="predict" method="post" action="/ajax/predict">
 									{% csrf_token %}
 									Select a date in the future to predict the price:
 									<input type="hidden" name="symbol" value="{{ stockName }}" required/>
+									<input type="hidden" name="hist" value="{{ hist }}"/>
 									<input type="text" class="form-control" name="date" id="datepicker" required/><br/><input class="btn btn-primary" type="submit"/>
 									<p id="predict_result"></p>
 								</form>
+								<hr/>
+								<h2>Releated alerts</h2>
+								<ul>
+									{% if releated_alerts|length > 0 %}
+										{% for row in releated_alerts %}
+											<li><a href="/alert/{{ row.id }}">{{ row.anomaly }} alert #{{ row.id }} on {{ row.symbol }}, {{ row.sector }}, at {{ row.occur_date }}</a></li>
+										{% endfor %}
+									{% else %}
+										<li>No releated alerts.</li>
+									{% endif %}
+								</ul>
 								<hr/>
 								{% endif %}
 								{% if latest_stock_list %}
@@ -123,9 +224,20 @@
 								{% if sectorName %}
 									{% if forloop.counter == 1 %}
 										<h2>Last available trades for {{ row.symbol }}</h2>
-										<ul>
+										<table id="stockstable">
+										<thead><th>Date</th><th>Seller</th><th>Buyer</th><th>Price</th><th>Volume</th><th>Bid</th><th>Ask</th></thead>
+										<tfoot><th>Date</th><th>Seller</th><th>Buyer</th><th>Price</th><th>Volume</th><th>Bid</th><th>Ask</th></tfoot>
+										<tbody>
 									{% endif %}
-								<li>{{ row }}</li>
+								<tr>
+									<td>{{ row.trade_time }}</td>
+									<td>{{ row.seller }}</td>
+									<td>{{ row.buyer }}</td>
+									<td>{{ row.price }}</td>
+									<td>{{ row.size }}</td>
+									<td>{{ row.bid }}</td>
+									<td>{{ row.ask }}</td>
+								</tr>
 								{% else %}
 									{% if forloop.counter == 1 %}
 										<ul>
@@ -133,7 +245,7 @@
 								<li><a href="{{ row }}">{{ row }}</a></li>
 								{% endif %}
 								{% endfor %}
-							</ul>
+							{% if sectorName %}</tbody></table>{% else %}</ul>{% endif %}
 							</div>
 						</div>
 					</div>
@@ -143,6 +255,23 @@
 		<script>
 			var length;
 			$(document).ready(function() {
+
+				$('#stockstable').DataTable();
+
+				$("#resolve").on('click', function() {
+					$("#solution").val('resolve');
+					$(this).parent().submit();
+				})
+
+				$("#unresolve").on('click', function() {
+					$("#solution").val('unresolve');
+					//$(this).parent().submit();
+				})
+
+				$("#falsealarm").on('click', function() {
+					$("#solution").val('falsealarm');
+					$(this).parent().submit();
+				})
 
 				$("#predict").submit(function(e)
 				{
@@ -163,7 +292,6 @@
 						}
 					});
 					e.preventDefault(); //STOP default action
-					e.unbind(); //unbind. to stop multiple form submit.
 				});
 
 				$( "#datepicker" ).datepicker({ minDate: "+1D", maxDate: "+1Y", dateFormat: "dd/mm/yy" });
@@ -180,7 +308,7 @@
 				}).done(function() {
 					setInterval(function() {
 						$.getJSON( "/ajax/alerts", function( data ) {
-							if (data.length != length) {
+							if (data.length > length) {
 								length = data.length;
 								// console.log("data: " + data.length + " length: " + length);
 								$.playSound("/static/stocks/the-calling");

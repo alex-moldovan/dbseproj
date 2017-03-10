@@ -1,4 +1,6 @@
 from django.db import models
+import datetime
+import time
 
 # Create your models here.
 
@@ -19,9 +21,9 @@ class Trade(models.Model):
 		return '%s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s' % (self.trade_time, self.buyer, self.seller, self.price, self.size, self.currency, self.symbol, self.sector, self.bid, self.ask, self.checked)
 
 class Market(models.Model):
-	update_date = models.DateField(db_index=True)
+	update_date = models.DateTimeField(db_index=True)
 	symbol = models.CharField(db_index=True, max_length=10)
-	sector = models.CharField(max_length=10)
+	sector = models.CharField(max_length=50)
 	price_avg = models.DecimalField(max_digits=7, decimal_places=2)
 	price_stddev = models.DecimalField(max_digits=7, decimal_places=2)
 	size_avg = models.IntegerField(default=0)
@@ -54,7 +56,9 @@ class Market(models.Model):
 			raise self.model.DoesNotExist("There is no closest object"
 										  " because there are no objects.")
 
-		if closest_greater.update_date - target > target - closest_less.update_date:
+		update_date = datetime.datetime.combine(closest_greater.update_date, datetime.time.min)
+
+		if datetime.datetime.combine(closest_greater.update_date, datetime.time.min) - target > target - datetime.datetime.combine(closest_less.update_date, datetime.time.min):
 			return closest_less
 		else:
 			return closest_greater

@@ -37,6 +37,18 @@
 				</div>
 			</div>
 
+			{% if success %}
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					<div class="panel panel-default">
+						<div class="panel-body">
+							<div><i class="fa fa-check"></i> Your file has been uploaded and is being dealt with in background.</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			{% endif %}
+
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
 					<ol class="breadcrumb">

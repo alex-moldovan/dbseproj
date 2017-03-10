@@ -32,7 +32,7 @@ def read_file(request):
 
 		importCSV.delay(path);
 
-	return redirect(reverse('index'))
+	return redirect('success')
 
 def read_alerts(request):
 	s = serializers.serialize("json", Alert.objects.filter(resolved=False))
@@ -55,7 +55,7 @@ def predict_future(request):
 	# s = serializers.serialize("json")
 	return HttpResponse(y)
 
-def index(request):
+def index(request, success=0):
 	if request.POST and request.FILES:
 		return read_file(request)
 	else:
@@ -63,10 +63,25 @@ def index(request):
 
 	context = {
 		'latest_stock_list': latest_stock_list,
-		'index': True
+		'index': True,
 	}
 
 	return render(request, 'stocks/index.html', context)
+
+def success(request):
+	if request.POST and request.FILES:
+		return read_file(request)
+	else:
+		latest_stock_list = Company.objects.values_list('sector', flat=True).distinct()
+
+	context = {
+		'latest_stock_list': latest_stock_list,
+		'index': True,
+		'success': 1,
+	}
+
+	return render(request, 'stocks/index.html', context)
+
 
 def stock(request, sectorName, symbolName):
 	if request.POST and request.FILES:

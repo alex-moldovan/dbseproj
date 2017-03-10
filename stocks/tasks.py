@@ -30,10 +30,10 @@ def importCSV(path):
 		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
 
 	tr = Trade.objects.filter(checked = 0)
-	time = tr[0].trade_time
 
 	if Trade.objects.filter(checked = 0).count() > 500000:
-		updatemarketimport()
+		#updatemarketimport()
+		pass
 
 	for trade in tr:
 		trade.checked = True
@@ -158,36 +158,36 @@ def detectFatFinger(tr, stats = None):
 	ask_dev = abs(tr.ask - stats.price_avg)
 
 	# Check price deviation
-	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT) or float(price_dev) < (stats.price_stddev / FF_PRC_DEV_FACT):
-		sendAlert(tr,"fatfinger-price-dev")
+	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT): #or float(price_dev) < (stats.price_stddev / FF_PRC_DEV_FACT):
+		sendAlert(tr,"Fat-finger (price deviation)")
 
 	# Check price
-	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT) or float(tr.price) < (stats.price_avg / FF_PRC_AVG_FACT):
-		sendAlert(tr,"fatfinger-price-avg")
+	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT): #or float(tr.price) < (stats.price_avg / FF_PRC_AVG_FACT):
+		sendAlert(tr,"Fat-finger (price)")
 
 	# Check size deviation
-	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT) or float(size_dev) < (stats.size_stddev / FF_SZE_DEV_FACT):
-		sendAlert(tr,"fatfinger-size-dev")
+	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT): #or float(size_dev) < (stats.size_stddev / FF_SZE_DEV_FACT):
+		sendAlert(tr,"Fat-finger (size deviation)")
 
 	# Check size
-	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT) or int(tr.size) < (stats.size_avg / FF_SZE_AVG_FACT):
-		sendAlert(tr,"fatfinger-size-avg")
+	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT): #or int(tr.size) < (stats.size_avg / FF_SZE_AVG_FACT):
+		sendAlert(tr,"Fat-finger (size)")
 
 	# Check bid deviation
-	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT) or float(bid_dev) < (stats.price_stddev / FF_BID_DEV_FACT):
-		sendAlert(tr,"fatfinger-bid-dev")
+	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT): #or float(bid_dev) < (stats.price_stddev / FF_BID_DEV_FACT):
+		sendAlert(tr,"Fat-finger (bid deviation)")
 
 	# Check bid
-	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT) or float(tr.bid) < (stats.price_avg / FF_BID_AVG_FACT):
-		sendAlert(tr,"fatfinger-bid-avg")
+	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT): #or float(tr.bid) < (stats.price_avg / FF_BID_AVG_FACT):
+		sendAlert(tr,"Fat-finger (bid)")
 
 	# Check ask deviation
-	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT) or float(ask_dev) < (stats.price_stddev / FF_ASK_DEV_FACT):
-		sendAlert(tr,"fatfinger-ask-dev")
+	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT): #or float(ask_dev) < (stats.price_stddev / FF_ASK_DEV_FACT):
+		sendAlert(tr,"Fat-finger (ask deviation)")
 
 	# Check ask
-	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT) or float(tr.ask) < (stats.price_avg / FF_ASK_AVG_FACT):
-		sendAlert(tr,"fatfinger-ask-avg")
+	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT): #or float(tr.ask) < (stats.price_avg / FF_ASK_AVG_FACT):
+		sendAlert(tr,"Fat-finger (ask)")
 
 
 '''
@@ -209,6 +209,7 @@ def detectFatFinger(tr, stats = None):
 	check for each symbol if the cumulative size for that day so far is
 	anomalous compared to the average daily size, e.g. it's 2x higher/lower.
 '''
+@shared_task
 def detectVolumeSpike():
 	market = Market.objects.all()
 	sectors = Sector.objects.all()
@@ -233,7 +234,7 @@ def detectVolumeSpike():
 			# pick a random trade with the respective symbol, as this is the
 			# only relevant data for this anomaly type
 			tr = Trade.objects.filter(symbol=stock.symbol)[0]
-			sendAlert(tr,"volume-spike-stock")
+			sendAlert(tr,"Stock Volume Spike")
 
 	for sector in sectors:
 		if sector.day_size_avg == 0:
@@ -241,7 +242,7 @@ def detectVolumeSpike():
 
 		if sector.current_day_size > (sector.day_size_avg * VS_FACT) or sector.current_day_size < (sector.day_size_avg * VS_FACT):
 			tr = Trade.objects.filter(sector=sector.name)[0]
-			sendAlert(tr, "volume-spike-sector")
+			sendAlert(tr, "Sector Volume Spike")
 
 	# if it's midnight, update the averages and reset the daily stats
 	if today.hour > 0 and today.hour < 1:
@@ -272,6 +273,8 @@ def detectVolumeSpike():
 	should revolve around the market price, so only the price is taken into
 	consideration here.
 '''
+
+@shared_task
 def detectPumpDump():
 	market = Market.objects.all()
 	yesterday = datetime.today() - timedelta(days=1)
@@ -295,7 +298,7 @@ def detectPumpDump():
 				# pick a random trade with the respective symbol, as this is the
 				# only relevant data for this anomaly type
 				tr = Trade.objects.filter(symbol=stock.symbol)[0]
-				sendAlert(tr,"pump-and-dump")
+				sendAlert(tr,"Pump and Dump")
 
 
 '''

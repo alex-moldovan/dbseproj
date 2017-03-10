@@ -25,7 +25,11 @@ app.conf.beat_schedule = {
 	'yesterdaystats': {
 		'task': 'stocks.tasks.updatestats',
 		'schedule': crontab(hour=0, minute=30, day_of_week="*")
-	},   
+	},
+	'detectanomalies': {
+		'task': 'stocks.tasks.detectPV',
+		'schedule': crontab(minute=0, hour='*/3')
+	},    
 }
 
 @app.task(bind=True)

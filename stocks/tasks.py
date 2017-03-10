@@ -1,7 +1,7 @@
 # Create your tasks here
 from __future__ import absolute_import, unicode_literals
 from celery import shared_task
-from stocks.models import Trade, Market, Alert, Company
+from stocks.models import Trade, Market, Alert, Company, Sector
 from django.db.models import Avg, StdDev, Count, Min, Max
 from datetime import date, timedelta, datetime
 from django.db import connection
@@ -23,6 +23,11 @@ VS_FACT = 2
 PD_DAY_LIM = 50
 PD_FLC_UB = 1.5
 PD_FLC_LB = 0.7
+
+@shared_task
+def detectPV():
+	detectPumpDump()
+	detectVolumeSpike()
 
 @shared_task
 def importCSV(path):
@@ -217,12 +222,14 @@ def detectVolumeSpike():
 	prev_time = today - timedelta(hours=4)
 
 	for sector in sectors:
-		new_size = Trade.objects.filter(trade_time__gte=prev_time, sector=sector['name']).aggregate(Avg('size'))
-		sector.current_day_size += new_size
+		new_size = Trade.objects.filter(trade_time__gte=prev_time, sector=sector.name).aggregate(Avg('size'))
+		new__size = new_size[0].size
+		sector.current_day_size += new__size
 
 	for stock in market:
-		new_size = Trade.objects.filter(trade_time__gte=prev_time, symbol=stock['symbol']).aggregate(Avg('size'))
-		stock.current_day_size += new_size
+		new_size = Trade.objects.filter(trade_time__gte=prev_time, symbol=stock.symbol).aggregate(Avg('size'))
+		new__size = new_size[0].size
+		stock.current_day_size += new__size
 
 	# check for volume spikes in the updated data
 	for stock in market:

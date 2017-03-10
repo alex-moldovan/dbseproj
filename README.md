@@ -25,3 +25,4 @@ There is a number of helper scripts that can be executed:
 ./run_celery.sh - Starts Celery workers, to allow for multiple actions running in parallel.
 ./run.sh - Starts the web server and puts the website online.
 ./run_live.sh - Connects to the stocks feed in order to start fetching trades. This is called daily at 1AM automatically.
+./run_project.sh - Runs the last three commands at once.

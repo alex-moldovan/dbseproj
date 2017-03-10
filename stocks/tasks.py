@@ -27,7 +27,7 @@ PD_FLC_LB = 0.7
 @shared_task
 def importCSV(path):
 	with connection.cursor() as cursor:
-		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = False;", [path])
+		cursor.execute("LOAD DATA LOCAL INFILE %s INTO TABLE stocks_trade FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\\n' IGNORE 1 LINES (trade_time,buyer,seller,price,size,currency,symbol,sector,bid,ask) SET id = NULL, checked = 0;", [path])
 
 	tr = Trade.objects.filter(checked = 0)
 
@@ -36,7 +36,7 @@ def importCSV(path):
 		pass
 
 	for trade in tr:
-		trade.checked = True
+		trade.checked = 1
 		detectAnomalies(trade.id)
 		trade.save()
 
@@ -158,36 +158,36 @@ def detectFatFinger(tr, stats = None):
 	ask_dev = abs(tr.ask - stats.price_avg)
 
 	# Check price deviation
-	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT): #or float(price_dev) < (stats.price_stddev / FF_PRC_DEV_FACT):
+	if float(price_dev) > (stats.price_stddev * FF_PRC_DEV_FACT) or float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT):#or float(price_dev) < (stats.price_stddev / FF_PRC_DEV_FACT):
 		sendAlert(tr,"Fat-finger (price deviation)")
 
 	# Check price
-	if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT): #or float(tr.price) < (stats.price_avg / FF_PRC_AVG_FACT):
-		sendAlert(tr,"Fat-finger (price)")
+	# if float(tr.price) > (stats.price_avg * FF_PRC_AVG_FACT): #or float(tr.price) < (stats.price_avg / FF_PRC_AVG_FACT):
+	# 	sendAlert(tr,"Fat-finger (price)")
 
 	# Check size deviation
-	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT): #or float(size_dev) < (stats.size_stddev / FF_SZE_DEV_FACT):
+	if float(size_dev) > (stats.size_stddev * FF_SZE_DEV_FACT) or int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT):#or float(size_dev) < (stats.size_stddev / FF_SZE_DEV_FACT):
 		sendAlert(tr,"Fat-finger (size deviation)")
 
 	# Check size
-	if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT): #or int(tr.size) < (stats.size_avg / FF_SZE_AVG_FACT):
-		sendAlert(tr,"Fat-finger (size)")
+	# if int(tr.size) > (stats.size_avg * FF_SZE_AVG_FACT): #or int(tr.size) < (stats.size_avg / FF_SZE_AVG_FACT):
+	# 	sendAlert(tr,"Fat-finger (size)")
 
 	# Check bid deviation
-	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT): #or float(bid_dev) < (stats.price_stddev / FF_BID_DEV_FACT):
+	if float(bid_dev) > (stats.price_stddev * FF_BID_DEV_FACT) or float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT): #or float(bid_dev) < (stats.price_stddev / FF_BID_DEV_FACT):
 		sendAlert(tr,"Fat-finger (bid deviation)")
 
 	# Check bid
-	if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT): #or float(tr.bid) < (stats.price_avg / FF_BID_AVG_FACT):
-		sendAlert(tr,"Fat-finger (bid)")
+	# if float(tr.bid) > (stats.price_avg * FF_BID_AVG_FACT): #or float(tr.bid) < (stats.price_avg / FF_BID_AVG_FACT):
+	# 	sendAlert(tr,"Fat-finger (bid)")
 
 	# Check ask deviation
-	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT): #or float(ask_dev) < (stats.price_stddev / FF_ASK_DEV_FACT):
+	if float(ask_dev) > (stats.price_stddev * FF_ASK_DEV_FACT) or float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT): #or float(ask_dev) < (stats.price_stddev / FF_ASK_DEV_FACT):
 		sendAlert(tr,"Fat-finger (ask deviation)")
 
 	# Check ask
-	if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT): #or float(tr.ask) < (stats.price_avg / FF_ASK_AVG_FACT):
-		sendAlert(tr,"Fat-finger (ask)")
+	# if float(tr.ask) > (stats.price_avg * FF_ASK_AVG_FACT): #or float(tr.ask) < (stats.price_avg / FF_ASK_AVG_FACT):
+	# 	sendAlert(tr,"Fat-finger (ask)")
 
 
 '''
@@ -332,3 +332,22 @@ def adjustFactor(error_type, adj_type):
 		PD_FLC_LB += PD_FLC_LB * 0.1 * adj_type
 		PD_FLC_UB += PD_FLC_UB * 0.1 * adj_type
 		PD_DAY_LIM += PD_DAY_LIM * 0.1 * adj_type
+
+def get_celery_worker_status():
+    try:
+        from celery.task.control import inspect
+        insp = inspect()
+        d = insp.stats()
+        if not d:
+            d = 'Error: No running Celery workers were found.'
+        else:
+        	d = 'Working'
+    except IOError as e:
+        from errno import errorcode
+        msg = "Error connecting to the backend: " + str(e)
+        if len(e.args) > 0 and errorcode.get(e.args[0]) == 'ECONNREFUSED':
+            msg += ' Check that the RabbitMQ server is running.'
+        d = msg
+    except ImportError as e:
+        d = str(e)
+    return d

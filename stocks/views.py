@@ -5,7 +5,7 @@ from django.db import connection
 from django.conf import settings
 from stocks.models import Trade, Alert, Market, Company
 from stocks.charts import simple, candle
-from stocks.tasks import importCSV
+from stocks.tasks import importCSV, get_celery_worker_status
 from django.http import HttpResponse
 import datetime
 import csv
@@ -61,9 +61,11 @@ def index(request, success=0):
 	else:
 		latest_stock_list = Company.objects.values_list('sector', flat=True).distinct()
 
+	celerystatus = get_celery_worker_status()
 	context = {
 		'latest_stock_list': latest_stock_list,
 		'index': True,
+		'celerystatus': celerystatus,
 	}
 
 	return render(request, 'stocks/index.html', context)
@@ -74,10 +76,12 @@ def success(request):
 	else:
 		latest_stock_list = Company.objects.values_list('sector', flat=True).distinct()
 
+	celerystatus = get_celery_worker_status()
 	context = {
 		'latest_stock_list': latest_stock_list,
 		'index': True,
 		'success': 1,
+		'celerystatus': celerystatus,
 	}
 
 	return render(request, 'stocks/index.html', context)
@@ -96,7 +100,7 @@ def stock(request, sectorName, symbolName):
 			hist_send = datetime.date.today().strftime("%d/%m/%Y")
 
 
-		latest_stock_list = Trade.objects.filter(symbol=symbolName, trade_time__lte = hist + datetime.timedelta(days=1)).order_by('-trade_time')[:500000]
+		latest_stock_list = Trade.objects.filter(symbol=symbolName, trade_time__lte = hist + datetime.timedelta(days=1)).order_by('-trade_time')[:10000]
 		#latest_stock_list = latest_stock_list.filter(symbol=symbolName, trade_time__lte = hist + datetime.timedelta(days=1))
 		#latest_stock_list = latest_stock_list.order_by('-trade_time')[:10000]
 
@@ -110,7 +114,7 @@ def stock(request, sectorName, symbolName):
 		mrk = Market.get_closest_to(hist + datetime.timedelta(days=1), symbolName);
 
 
-
+		celerystatus = get_celery_worker_status()
 		context = {
 			'stockName' : symbolName,
 			'sectorName' : sectorName,
@@ -121,6 +125,7 @@ def stock(request, sectorName, symbolName):
 			'price': mrk.price_avg,
 			'volume': mrk.size_avg,
 			'hist': hist_send,
+			'celerystatus': celerystatus,
 		}
 
 		return render(request, 'stocks/index.html', context)
@@ -132,9 +137,11 @@ def sector(request, sectorName):
 		latest_stock_list = Company.objects.filter(sector=sectorName).order_by().values_list('symbol', flat=True).distinct()
 		#latest_stock_list = latest_stock_list.values_list('symbol', flat=True).distinct()
 
+	celerystatus = get_celery_worker_status()
 	context = {
 		'stockName' : sectorName,
 		'latest_stock_list': latest_stock_list,
+		'celerystatus': celerystatus,
 	}
 
 	return render(request, 'stocks/index.html', context)
@@ -147,10 +154,12 @@ def alerts(request):
 		prev_false = Alert.objects.filter(resolved=1, false_alarm=1).order_by('-id')
 		prev_serious = Alert.objects.filter(resolved=1, false_alarm=0).order_by('-id')
 
+	celerystatus = get_celery_worker_status()
 	context = {
 		'alertsList' : alerts_list,
 		'prevFalse' : prev_false,
 		'prevSerious' : prev_serious,
+		'celerystatus': celerystatus,
 	}
 
 	return render(request, 'stocks/index.html', context)
@@ -183,10 +192,13 @@ def alert(request, alertId):
 		mrk = Market.get_closest_to(alert.occur_date + datetime.timedelta(days=1), alert.symbol);
 	else :
 		mrk = None
+
+	celerystatus = get_celery_worker_status()
 	context = {
 		'alert' : alert,
 		'trade' : alert.trade,
 		'market' : mrk,
+		'celerystatus': celerystatus,
 	}
 
 	return render(request, 'stocks/index.html', context)

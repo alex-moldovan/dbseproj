@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>Stocks Page</title>
+		<title>FTSE100 Anomaly Detection System</title>
 		<meta charset="utf-8" />
 		{% load staticfiles %}
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
@@ -27,6 +27,19 @@
 	<body>
 		{% include "stocks/header.html" %}
 		<div class="container-fluid">
+
+			{% if celerystatus != "Working" %}
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					<div class="panel panel-default">
+						<div class="panel-body">
+							<div class="imp"><i class="fa fa-warning"></i> {{ celerystatus }}</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			{% endif %}
+
 			<div class="row">
 				<div class="col-md-10 col-md-offset-1">
 					<div class="panel panel-default">
@@ -140,7 +153,7 @@
 						<div class="panel panel-default">
 							<div class="panel-body">
 							<h2>Alert #{{ alert.id }}</h2>
-							{% if alert.symbol %}<h4>Company: <a href="/{{ alert.sector }}/{{ alert.symbol }}/">{{ alert.symbol }}</a></h4>{% endif %}
+							{% if alert.symbol %}<h4>Company: <a href="/{{ alert.sector }}/{{ alert.symbol }}">{{ alert.symbol }}</a></h4>{% endif %}
 							{% if alert.sector %}<h4>Sector: {{ alert.sector }}</h4>{% endif %}
 							<h4>Anomaly: {{ alert.anomaly }}</h4>
 							<h4>Current status: 
@@ -153,8 +166,21 @@
 							{% endif %}</h4>
 							{% if alert.trade %}
 								<hr/>
-									<h4>Trade causing the alert:</h4>
-									{{ alert.trade }}
+									<h4>Trade that trigerred the alert:</h4>
+									<table id="stockstable">
+										<thead><th>Date</th><th>Seller</th><th>Buyer</th><th>Price</th><th>Volume</th><th>Bid</th><th>Ask</th></thead>
+										<tbody>
+										<tr>
+											<td>{{ alert.trade.trade_time }}</td>
+											<td>{{ alert.trade.seller }}</td>
+											<td>{{ alert.trade.buyer }}</td>
+											<td>{{ alert.trade.price }}</td>
+											<td>{{ alert.trade.size }}</td>
+											<td>{{ alert.trade.bid }}</td>
+											<td>{{ alert.trade.ask }}</td>
+										</tr>
+										</tbody>
+									</table>
 								<hr/>
 								{% if market.update_date %}
 								<ul>
@@ -263,6 +289,14 @@
 					</div>
 				</div>
 			{% endif %}
+			<div class="row">
+				<div class="col-md-10 col-md-offset-1">
+					<ol class="breadcrumb">
+						<li>Celery Status: {{ celerystatus }}{% if celerystatus == "Working" %} <i class="fa fa-cog fa-spin"></i>{% endif %}</li>
+					</ol>
+				</div>
+			</div>
+
 		</div>
 		<script>
 			var length;
@@ -296,7 +330,7 @@
 						data : postData,
 						success:function(data, textStatus, jqXHR) 
 						{
-							$("#predict_result").html("Predicted average price: " + data);
+							$("#predict_result").html("<br/>Predicted average price: " + data);
 						},
 						error: function(jqXHR, textStatus, errorThrown) 
 						{
@@ -314,9 +348,9 @@
 					if (data.length == 0) 
 						$("#alerts").html("<i class='fa fa-check' aria-hidden='true'></i> <a href='/alerts/'>There are no new alerts</a>");
 					else if (data.length == 1)
-						$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
+						$("#alerts").html("<i class='imp fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
 					else if (data.length > 1)
-						$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
+						$("#alerts").html("<i class='imp fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
 				}).done(function() {
 					setInterval(function() {
 						$.getJSON( "/ajax/alerts", function( data ) {
@@ -338,9 +372,9 @@
 								if (data.length == 0) 
 									$("#alerts").html("<i class='fa fa-check' aria-hidden='true'></i> <a href='/alerts/'>There are no new alerts</a>");
 								else if (data.length == 1)
-									$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
+									$("#alerts").html("<i class='imp fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There is one new alert</a>");
 								else if (data.length > 1)
-									$("#alerts").html("<i class='fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
+									$("#alerts").html("<i class='imp fa fa-exclamation-triangle' aria-hidden='true'></i> <a class='imp' href='/alerts/'>There are " + data.length + " new alerts!</a>");
 							}
 						});
 					}, 8000);

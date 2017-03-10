@@ -11,6 +11,10 @@
     height: 100px;
   }
 
+.centre {
+	text-align: center;
+}
+
 div.treeview {
     min-width: 100px;
     min-height: 100px;
@@ -95,7 +99,7 @@ div.treeview ul:first-child:before {
     outline: 0;
 }
 
-a.imp {
+.imp {
 	color: red;
 }
 
